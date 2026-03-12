@@ -1,4 +1,5 @@
 ﻿// See https://aka.ms/new-console-template for more information
+using System.ComponentModel.Design;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
@@ -7,9 +8,28 @@ namespace TrackPostExtUpdator
 {
     public static partial class Program
     {
+        private static readonly string[] candidates = ["Track", "트랙"];
+
         public static async Task Main(string[] args)
         {
-            TaskManager.GetTasks();
+            var tasks = TaskManager.GetTasks();
+            if(tasks != null)
+            {
+                var trackpostTasks = tasks.Where(t => {
+                    return candidates.Any(word => t.Name.Contains(word, StringComparison.OrdinalIgnoreCase));
+                });
+                if (trackpostTasks.Count > 0)
+                {
+                    Console.WriteLine("TrackPost 관련 프로세스가 실행 중입니다:");
+                    foreach (var task in trackpostTasks)
+                    {
+                        Console.WriteLine($"- {task.Name} (PID: {task.PID})");
+                    }
+                    Console.WriteLine("업데이트를 진행하려면 모든 TrackPost 관련 프로세스를 종료해주세요.");
+                    Console.WriteLine("종료 후 Enter 키를 눌러 계속 진행하세요...");
+                    Console.ReadLine();
+                }
+            }
             return;
             Invisibler.MakeInvisible();
             const string USER_AGENT = "TrackPostUpdater";
