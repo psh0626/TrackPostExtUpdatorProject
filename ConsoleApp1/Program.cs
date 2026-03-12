@@ -9,6 +9,8 @@ namespace TrackPostExtUpdator
     {
         public static async Task Main(string[] args)
         {
+            TaskManager.GetTasks();
+            return;
             Invisibler.MakeInvisible();
             const string USER_AGENT = "TrackPostUpdater";
             const string TOKEN =
@@ -48,7 +50,7 @@ namespace TrackPostExtUpdator
 
                 Invisibler.MakeVisible();
                 Console.WriteLine("업데이트를 강제하려면 SHIFT키를 1초간 누르세요.");
-                bool shouldForce = await ShiftDetector.CheckShiftHeld(1500, 800);
+                bool shouldForce = await ShiftDetector.CheckShiftHeld(2000, 800);
                 if (shouldForce)
                     Console.WriteLine("\n--업데이트를 강제합니다.\n\n");
                 await Updator.UpdateTrackPost(githubClient, shouldForce);
