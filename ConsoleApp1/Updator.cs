@@ -11,7 +11,7 @@ internal static class Updator
 
     const string LOCAL_FOLDER_NAME = "dist";
 
-    const string UPDATE_LOGS_URL = "https://github.com/shawnpark9494/TrackPostExtZip/commits/main/";
+    const string UPDATE_LOGS_URL = $"https://github.com/{OWNER}/{REPO_NAME}/commits/main/";
 
     public static async Task DisposeTempFile(int pid, string path)
     {
@@ -285,7 +285,6 @@ internal static class Updator
         var entries = Directory.EnumerateFileSystemEntries(folder).ToList();
         int totalEntries = entries.Count;
         int deletedEntries = 0;
-        double lastProgress = -1;
 
         var folder_info = folder.Split("\\");
         Console.WriteLine(
@@ -316,7 +315,7 @@ internal static class Updator
                 Console.WriteLine($"삭제 중: {progress:F2}%");
                 Console.SetCursorPosition(0, Console.CursorTop - 1);
 
-                lastProgress = progress;
+                double lastProgress = progress;
                 // Ensure the final message appears on a new line after completion
                 if (lastProgress >= 100)
                 {

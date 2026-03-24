@@ -6,60 +6,59 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace TrackPostExtUpdator
+namespace TrackPostExtUpdator;
+
+internal static class ShiftDetector
 {
-    internal static class ShiftDetector
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int vKey);
+
+    private const int VK_SHIFT = 0x10;
+
+    // Polls the physical SHIFT key state and returns true if it is held continuously for 'holdMilliseconds'.
+    // overallTimeoutMilliseconds limits how long the method will wait before returning false.
+    internal static async Task<bool> CheckShiftHeld(
+        int timeoutMs = 1200,
+        int holdMs = 1000,
+        int pollIntervalMs = 16
+    )
     {
-        [DllImport("user32.dll")]
-        private static extern short GetAsyncKeyState(int vKey);
+        if (holdMs <= 0)
+            return false;
 
-        private const int VK_SHIFT = 0x10;
+        var sw = Stopwatch.StartNew();
+        long holdStart = -1;
 
-        // Polls the physical SHIFT key state and returns true if it is held continuously for 'holdMilliseconds'.
-        // overallTimeoutMilliseconds limits how long the method will wait before returning false.
-        internal static async Task<bool> CheckShiftHeld(
-            int timeoutMs = 1200,
-            int holdMs = 1000,
-            int pollIntervalMs = 16
-        )
+        while (sw.ElapsedMilliseconds < timeoutMs)
         {
-            if (holdMs <= 0)
-                return false;
+            bool isDown = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
 
-            var sw = Stopwatch.StartNew();
-            long holdStart = -1;
-
-            while (sw.ElapsedMilliseconds < timeoutMs)
+            if (isDown)
             {
-                bool isDown = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
-
-                if (isDown)
+                if (holdStart < 0)
                 {
-                    if (holdStart < 0)
-                    {
-                        // SHIFT pressed — mark the start time
-                        holdStart = sw.ElapsedMilliseconds;
-                    }
-                    else
-                    {
-                        // check continuous hold duration
-                        var heldFor = sw.ElapsedMilliseconds - holdStart;
-                        if (heldFor >= holdMs)
-                        {
-                            return true;
-                        }
-                    }
+                    // SHIFT pressed — mark the start time
+                    holdStart = sw.ElapsedMilliseconds;
                 }
                 else
                 {
-                    // SHIFT released — reset
-                    holdStart = -1;
+                    // check continuous hold duration
+                    var heldFor = sw.ElapsedMilliseconds - holdStart;
+                    if (heldFor >= holdMs)
+                    {
+                        return true;
+                    }
                 }
-
-                await Task.Delay(pollIntervalMs).ConfigureAwait(false);
+            }
+            else
+            {
+                // SHIFT released — reset
+                holdStart = -1;
             }
 
-            return false;
+            await Task.Delay(pollIntervalMs).ConfigureAwait(false);
         }
+
+        return false;
     }
 }
