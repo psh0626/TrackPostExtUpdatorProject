@@ -5,7 +5,7 @@ namespace TrackPostExtUpdator;
 
 internal static class Updator
 {
-    const string OWNER = "shawnpark9494";
+    const string OWNER = "psh0626";
     const string REPO_NAME = "TrackPostExtZip";
     const string UPDATOR_REPO_NAME = "TrackPostExtUpdator";
 
