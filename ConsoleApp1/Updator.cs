@@ -56,7 +56,7 @@ internal static class Updator
         var repo = await client.GetRepository(OWNER, UPDATOR_REPO_NAME);
         bool IsRemoteNewer = repo.UpdatedAt > local_last_updated;
 
-        if (IsRemoteNewer)
+        if (IsRemoteNewer || true)
         {
             Invisibler.MakeVisible();
             Console.WriteLine($"TrackPost 확장프로그램 업데이터에 패치가 있습니다.");

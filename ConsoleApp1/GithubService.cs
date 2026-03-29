@@ -98,7 +98,7 @@ public class GithubService : IDisposable
 
         var download_url = contents[0].DownloadUrl;
 
-        using var response = await _client.GetAsync(
+        var response = await _client.GetAsync(
             download_url,
             HttpCompletionOption.ResponseHeadersRead
         );
