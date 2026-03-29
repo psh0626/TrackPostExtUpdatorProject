@@ -1,5 +1,7 @@
 ﻿using System.Diagnostics;
 using System.IO.Compression;
+using System.Linq;
+using System.Net;
 
 namespace TrackPostExtUpdator;
 
@@ -11,7 +13,7 @@ internal static class Updator
 
     const string LOCAL_FOLDER_NAME = "dist";
 
-    const string UPDATE_LOGS_URL = $"https://github.com/{OWNER}/{REPO_NAME}/commits/main/";
+    const string UPDATE_LOGS_URL = $"https://github.com/{OWNER}/{REPO_NAME}/releases";
 
     public static async Task DisposeTempFile(int pid, string path)
     {
@@ -51,7 +53,7 @@ internal static class Updator
         var current_file_path = Environment.ProcessPath;
         var local_last_updated = new DateTimeOffset(File.GetLastWriteTime(current_file_path!));
 
-        var repo = await client.GetRepositoryAsync(OWNER, UPDATOR_REPO_NAME);
+        var repo = await client.GetRepository(OWNER, UPDATOR_REPO_NAME);
         bool IsRemoteNewer = repo.UpdatedAt > local_last_updated;
 
         if (IsRemoteNewer)
@@ -61,7 +63,7 @@ internal static class Updator
             var temp_folder = Path.Combine(Path.GetTempPath(), "IMIC-" + Path.GetRandomFileName());
             var file_name = Path.GetFileNameWithoutExtension(current_file_path);
             var temp_path = Path.Combine(temp_folder, file_name + ".zip");
-            var zip_path = await DownloadZipFile(client, repo, temp_path);
+            var zip_path = await DownloadZip(client, temp_path);
 
             if (string.IsNullOrEmpty(zip_path))
                 throw new FileNotFoundException("Download failed.");
@@ -92,14 +94,14 @@ internal static class Updator
         var local_last_updated = new DateTimeOffset(Directory.GetLastWriteTime(local_folder));
         Console.WriteLine($"로컬 TrackPost 마지막 업데이트: {local_last_updated.LocalDateTime}");
 
-        var repo = await client.GetRepositoryAsync(OWNER, REPO_NAME);
-        if (repo is null)
+        var release = await client.GetLatestRelease(OWNER, REPO_NAME);
+        if (release is null)
             return;
-        Console.WriteLine($"공식 TrackPost 마지막 업데이트: {repo.UpdatedAt.LocalDateTime}");
+        Console.WriteLine($"공식 TrackPost 마지막 업데이트: {release.UpdatedAt.LocalDateTime}");
 
         const string local_new_string = "현재 최신 버전이 설치 되어 있습니다.";
         const string remote_new_string = "현재 업데이트가 있습니다.";
-        bool IsRemoteNewer = repo.UpdatedAt > local_last_updated;
+        bool IsRemoteNewer = release.UpdatedAt > local_last_updated;
         Console.WriteLine($"{(IsRemoteNewer ? remote_new_string : local_new_string)}");
 
         if (IsRemoteNewer || forceUpdate)
@@ -107,15 +109,17 @@ internal static class Updator
             Invisibler.MakeVisible();
             var temp_folder = Path.Combine(Path.GetTempPath(), "IMIC-" + Path.GetRandomFileName());
             var temp_path = Path.Combine(temp_folder, Path.GetFileName(local_folder) + ".zip");
-            var zip_path = await DownloadZipFile(client, repo, temp_path);
+            var temp_extract_folder = Path.Combine(temp_folder, Path.GetFileName(local_folder));
+            var zip_path = await DownloadZip(client, release, temp_path);
 
             if (string.IsNullOrEmpty(zip_path))
                 throw new FileNotFoundException("Download failed.");
 
-            DeleteAllFilesIn(local_folder);
             Console.WriteLine("\n업데이트 파일 압축 푸는 중..");
-            ZipFile.ExtractToDirectory(zip_path, local_folder);
+            ZipFile.ExtractToDirectory(zip_path, temp_extract_folder);
             Console.WriteLine("\n업데이트 파일 압축 해제 완료!");
+            DeleteAllFilesIn(local_folder);
+            MoveAllFiles(temp_extract_folder, local_folder);
             DeleteAllFilesIn(Path.GetDirectoryName(temp_path)!);
             Directory.SetLastWriteTime(local_folder, DateTime.Now);
             Invisibler.MakeInvisible();
@@ -125,10 +129,69 @@ internal static class Updator
             //Environment.Exit(0);
         }
 
-        var rate_limit = await client.GetRateLimitsAsync();
+        var rate_limit = await client.GetRateLimits();
         Console.WriteLine(
             $"\ngithub rate limit: {rate_limit.Remaining} / {rate_limit.Limit} requests left."
         );
+    }
+
+    static async Task<string> DownloadZip(GithubService client, Release release, string path)
+    {
+        using var download = await client.GetReleaseFileStream(release);
+        return await ProcessStream(download, path);
+    }
+    static async Task<string> DownloadZip(GithubService client, string path)
+    {
+        using var download = await client.GetLatestCommitFileStream(OWNER, UPDATOR_REPO_NAME, Path.GetFileName(path));
+        return await ProcessStream(download, path);
+    }
+    private static async Task<string> ProcessStream(DownloadFileStream download, string path)
+    {
+        Console.WriteLine("최신 버전의 업데이트 파일을 다운로드를 시작합니다.\n");
+        var total_bytes = download.FileSize;
+        var can_report_progress = total_bytes != -1;
+
+        if (!Path.Exists(path))
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var remote_stream = download.Stream;
+        using var local_stream = new FileStream(
+            path,
+            System.IO.FileMode.Create,
+            FileAccess.Write,
+            FileShare.None,
+            8192,
+            true
+        );
+
+        var buffer = new byte[8192];
+        long total_bytes_read = 0;
+        int bytes_read;
+        double lastProgress = 0;
+
+        while ((bytes_read = await remote_stream.ReadAsync(buffer)) > 0)
+        {
+            await local_stream.WriteAsync(buffer.AsMemory(0, bytes_read));
+            total_bytes_read += bytes_read;
+
+            if (can_report_progress)
+            {
+                var progress = ((double)total_bytes_read / total_bytes * 100);
+                if (lastProgress > 0 && Console.CursorTop > 0)
+                {
+                    Console.SetCursorPosition(0, Console.CursorTop - 1);
+                    Console.Write(new string(' ', Console.WindowWidth));
+                    Console.WriteLine($"다운로드 중: {progress:F2}%");
+                    Console.SetCursorPosition(0, Console.CursorTop - 1);
+                }
+                lastProgress = progress;
+                if (lastProgress >= 100)
+                    Console.WriteLine("");
+            }
+        }
+
+        Console.WriteLine("\n다운로드 완료!");
+
+        return path;
     }
 
     static string? FindLocalFolder(string folder_name)
@@ -193,89 +256,58 @@ internal static class Updator
 
         return target_folder;
     }
-
-    static async Task<string> DownloadZipFile(
-        GithubService client,
-        Repository repository,
-        string path
-    )
+    static void MoveAllFiles(string sourceFolder, string destinationFolder)
     {
-        var contents = await client.GetAllContentsAsync(
-            repository.Owner.Login,
-            repository.Name,
-            Path.GetFileName(path)!
-        );
+        if (!Directory.Exists(sourceFolder))
+            throw new DirectoryNotFoundException($"소스 폴더 '{sourceFolder}' 찾을 수 없음.");
+        if (!Directory.Exists(destinationFolder))
+            Directory.CreateDirectory(destinationFolder);
 
-        if (contents.Count < 1)
-            throw new FileNotFoundException("Github에서 dist.zip을 찾을 수 없습니다.");
+        var entries = Directory.EnumerateFileSystemEntries(sourceFolder).ToList();
+        int totalEntries = entries.Count;
 
-        var download_url = contents[0].DownloadUrl;
+        Console.WriteLine($"\n업데이트 파일을 이동하는 중.. ({totalEntries}개 파일)\n");
+        int movedEntries = 0;
 
-        //var pagination = new ApiOptions
-        //{
-        //  PageCount = 1,
-        //  PageSize = 1,
-        //  StartPage = 1
-        //};
-        //var patch_note = (await client.Repository.Commit.GetAll(repository.Id, pagination))[0].Commit.Message;
-
-        using var http_client = new HttpClient();
-
-        Console.WriteLine("최신 버전의 업데이트 파일을 다운로드를 시작합니다.\n");
-
-        using var response = await http_client.GetAsync(
-            download_url,
-            HttpCompletionOption.ResponseHeadersRead
-        );
-        response.EnsureSuccessStatusCode();
-
-        var total_bytes = response.Content.Headers.ContentLength ?? -1L;
-        var can_report_progress = total_bytes != -1;
-
-        if (!Path.Exists(path))
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-
-        using var remote_stream = await response.Content.ReadAsStreamAsync();
-        using var local_stream = new FileStream(
-            path,
-            System.IO.FileMode.Create,
-            FileAccess.Write,
-            FileShare.None,
-            8192,
-            true
-        );
-
-        var buffer = new byte[8192];
-        long total_bytes_read = 0;
-        int bytes_read;
-        double lastProgress = 0;
-
-        while ((bytes_read = await remote_stream.ReadAsync(buffer)) > 0)
+        foreach (var item in entries)
         {
-            await local_stream.WriteAsync(buffer.AsMemory(0, bytes_read));
-            total_bytes_read += bytes_read;
-
-            if (can_report_progress)
+            var destPath = Path.Combine(destinationFolder, Path.GetFileName(item));
+            try
             {
-                var progress = ((double)total_bytes_read / total_bytes * 100);
-                if (lastProgress > 0 && Console.CursorTop > 0)
+                if (File.Exists(item))
                 {
-                    Console.SetCursorPosition(0, Console.CursorTop - 1);
-                    Console.Write(new string(' ', Console.WindowWidth));
-                    Console.WriteLine($"다운로드 중: {progress:F2}%");
-                    Console.SetCursorPosition(0, Console.CursorTop - 1);
+                    File.Move(item, destPath);
                 }
-                lastProgress = progress;
+                else if (Directory.Exists(item))
+                {
+                    Directory.Move(item, destPath);
+                }
+
+                // Increment the count of deleted entries
+                movedEntries++;
+
+                // Calculate progress
+                double progress = ((double)movedEntries / totalEntries) * 100;
+
+                Console.SetCursorPosition(0, Console.CursorTop - 1);
+                Console.Write(new string(' ', Console.WindowWidth));
+                Console.WriteLine($"이동 중: {progress:F2}%");
+                Console.SetCursorPosition(0, Console.CursorTop - 1);
+
+                double lastProgress = progress;
+                // Ensure the final message appears on a new line after completion
                 if (lastProgress >= 100)
+                {
                     Console.WriteLine("");
+                }
+            }
+            catch (Exception ex)
+            {
+                throw new IOException($"파일 '{item}'을(를) 이동할 수 없음: {ex.Message}");
             }
         }
-
-        Console.WriteLine("\n다운로드 완료!");
-
-        return path;
+        Console.WriteLine("\n업데이트 파일 이동 완료!");
     }
-
     static void DeleteAllFilesIn(string folder)
     {
         if (!Directory.Exists(folder))

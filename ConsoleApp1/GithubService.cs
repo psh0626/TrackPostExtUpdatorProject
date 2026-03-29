@@ -1,4 +1,6 @@
-﻿using System.Diagnostics.CodeAnalysis;
+﻿using System.ComponentModel.Design.Serialization;
+using System.Diagnostics.CodeAnalysis;
+using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -44,7 +46,7 @@ public class GithubService : IDisposable
         _disposed = true;
     }
 
-    public async Task<Repository> GetRepositoryAsync(string owner, string repoName)
+    public async Task<Repository> GetRepository(string owner, string repoName)
     {
         var response = await _client.GetAsync($"https://api.github.com/repos/{owner}/{repoName}");
         response.EnsureSuccessStatusCode();
@@ -55,7 +57,7 @@ public class GithubService : IDisposable
     }
 
     // New method to get all contents of the repository
-    public async Task<List<Content>> GetAllContentsAsync(
+    public async Task<List<Content>> GetContents(
         string owner,
         string repo,
         string path = ""
@@ -87,9 +89,26 @@ public class GithubService : IDisposable
                 : throw new FileNotFoundException("Content not found.");
         }
     }
+    public async Task<DownloadFileStream> GetLatestCommitFileStream(string owner, string repo, string fileName)
+    {
+        var contents = await GetContents(owner, repo, fileName);
+
+        if (contents.Count < 1)
+            throw new FileNotFoundException($"Github에서 {fileName}을 찾을 수 없습니다.");
+
+        var download_url = contents[0].DownloadUrl;
+
+        using var response = await _client.GetAsync(
+            download_url,
+            HttpCompletionOption.ResponseHeadersRead
+        );
+        response.EnsureSuccessStatusCode();
+
+        return new DownloadFileStream(response);
+    }
 
     // Equivalent to Octokit's UserClient.Get()
-    public async Task<User> GetUserAsync(string username)
+    public async Task<User> GetUser(string username)
     {
         var response = await _client.GetAsync($"https://api.github.com/users/{username}");
         response.EnsureSuccessStatusCode();
@@ -99,7 +118,7 @@ public class GithubService : IDisposable
         return user ?? throw new FileNotFoundException("User not found.");
     }
 
-    public async Task<RateLimit> GetRateLimitsAsync()
+    public async Task<RateLimit> GetRateLimits()
     {
         var response = await _client.GetAsync($"https://api.github.com/rate_limit");
         response.EnsureSuccessStatusCode();
@@ -110,6 +129,57 @@ public class GithubService : IDisposable
         );
         var rateLimit = rateLimitResponse?.Resources?.Core;
         return rateLimit ?? throw new FileNotFoundException("Rate Limit not found.");
+    }
+
+    public async Task<List<Release>> GetReleases(string owner, string repo)
+    {
+        var response = await _client.GetAsync($"https://api.github.com/repos/{owner}/{repo}/releases");
+        response.EnsureSuccessStatusCode();
+        var content = await response.Content.ReadAsStringAsync();
+        var releases = JsonSerializer.Deserialize(content, GitHubJsonContext.Default.ListRelease);
+
+        return releases ?? throw new FileNotFoundException("No releases found.");
+    }
+
+    public async Task<Release> GetLatestRelease(string owner, string repo)
+    {
+        var releases = await GetReleases(owner, repo);
+        if (releases.Count < 1)
+            throw new FileNotFoundException($"Github에서 Release를 찾을 수 없습니다.");
+        return releases[0];
+    }
+
+    public async Task<DownloadFileStream> GetReleaseFileStream(Release release)
+    {
+        var url = release.Assets[0].BrowserDownloadUrl;
+
+        var response = await _client.GetAsync(
+            url,
+            HttpCompletionOption.ResponseHeadersRead
+        );
+        response.EnsureSuccessStatusCode();
+
+        return new DownloadFileStream(response);
+    }
+}
+
+public class DownloadFileStream(HttpResponseMessage response) : IDisposable
+{
+    private readonly HttpResponseMessage _response = response;
+    public long FileSize { get; } = response.Content.Headers.ContentLength ?? -1L;
+    public Stream Stream { get; } = response.Content.ReadAsStreamAsync().GetAwaiter().GetResult();
+
+    public void Dispose()
+    {
+        try
+        {
+            Stream?.Dispose();
+        }
+        finally
+        {
+            _response?.Dispose();
+            GC.SuppressFinalize(this);
+        }
     }
 }
 
@@ -130,6 +200,7 @@ public class SnakeCaseNamingPolicy : JsonNamingPolicy
 [JsonSerializable(typeof(User))]
 [JsonSerializable(typeof(List<Content>))]
 [JsonSerializable(typeof(RateLimitResponse))]
+[JsonSerializable(typeof(List<Release>))]
 [JsonSourceGenerationOptions(GenerationMode = JsonSourceGenerationMode.Metadata)]
 [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.All)]
 internal partial class GitHubJsonContext : JsonSerializerContext { }
@@ -345,4 +416,112 @@ public class RateLimitResources
 
     [JsonPropertyName("source_import")]
     public RateLimit? SourceImport { get; set; }
+}
+
+public class Release
+{
+    [JsonPropertyName("url")]
+    public string Url { get; set; } = string.Empty;
+
+    [JsonPropertyName("assets_url")]
+    public string AssetsUrl { get; set; } = string.Empty;
+
+    [JsonPropertyName("upload_url")]
+    public string UploadUrl { get; set; } = string.Empty;
+
+    [JsonPropertyName("html_url")]
+    public string HtmlUrl { get; set; } = string.Empty;
+
+    [JsonPropertyName("id")]
+    public long Id { get; set; }
+
+    [JsonPropertyName("author")]
+    public User Author { get; set; } = new User();
+
+    [JsonPropertyName("node_id")]
+    public string NodeId { get; set; } = string.Empty;
+
+    [JsonPropertyName("tag_name")]
+    public string TagName { get; set; } = string.Empty;
+
+    [JsonPropertyName("target_commitish")]
+    public string TargetCommitish { get; set; } = string.Empty;
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("draft")]
+    public bool Draft { get; set; }
+
+    [JsonPropertyName("immutable")]
+    public bool Immutable { get; set; }
+
+    [JsonPropertyName("prerelease")]
+    public bool Prerelease { get; set; }
+
+    [JsonPropertyName("created_at")]
+    public DateTimeOffset CreatedAt { get; set; }
+
+    [JsonPropertyName("updated_at")]
+    public DateTimeOffset UpdatedAt { get; set; }
+
+    [JsonPropertyName("published_at")]
+    public DateTimeOffset? PublishedAt { get; set; }
+
+    [JsonPropertyName("assets")]
+    public List<Asset> Assets { get; set; } = new List<Asset>();
+
+    [JsonPropertyName("tarball_url")]
+    public string? TarballUrl { get; set; }
+
+    [JsonPropertyName("zipball_url")]
+    public string? ZipballUrl { get; set; }
+
+    [JsonPropertyName("body")]
+    public string? Body { get; set; }
+}
+
+public class Asset
+{
+    [JsonPropertyName("url")]
+    public string Url { get; set; } = string.Empty;
+
+    [JsonPropertyName("id")]
+    public long Id { get; set; }
+
+    [JsonPropertyName("node_id")]
+    public string NodeId { get; set; } = string.Empty;
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("label")]
+    public string? Label { get; set; }
+
+    [JsonPropertyName("uploader")]
+    public User Uploader { get; set; } = new User();
+
+    [JsonPropertyName("content_type")]
+    public string? ContentType { get; set; }
+
+    [JsonPropertyName("state")]
+    public string? State { get; set; }
+
+    [JsonPropertyName("size")]
+    public long Size { get; set; }
+
+    [JsonPropertyName("digest")]
+    public string? Digest { get; set; }
+
+    [JsonPropertyName("download_count")]
+    public int DownloadCount { get; set; }
+
+    [JsonPropertyName("created_at")]
+    public DateTimeOffset CreatedAt { get; set; }
+
+    [JsonPropertyName("updated_at")]
+    public DateTimeOffset UpdatedAt { get; set; }
+
+    [JsonPropertyName("browser_download_url")]
+    public string? BrowserDownloadUrl { get; set; }
 }
