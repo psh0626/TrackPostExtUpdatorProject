@@ -10,7 +10,7 @@
     <PackageIcon>updatoricon.png</PackageIcon>
     <PublishAot>true</PublishAot>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <EnableComHosting>true</EnableComHosting>
+    
   </PropertyGroup>
 
   <ItemGroup>
