@@ -13,7 +13,7 @@ internal static class Updator
 
     const string LOCAL_FOLDER_NAME = "dist";
 
-    const string UPDATE_LOGS_URL = $"https://github.com/{OWNER}/{REPO_NAME}/releases";
+    const string UPDATE_LOGS_URL = $"https://github.com/{OWNER}/{REPO_NAME}/releases?reload=true";
 
     public static async Task DisposeTempFile(int pid, string path)
     {

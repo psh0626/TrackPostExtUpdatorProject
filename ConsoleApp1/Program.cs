@@ -1,8 +1,4 @@
 ﻿// See https://aka.ms/new-console-template for more information
-using System.ComponentModel.Design;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Text.RegularExpressions;
 
 namespace TrackPostExtUpdator;
 
