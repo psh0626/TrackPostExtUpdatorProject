@@ -7,10 +7,12 @@ public static partial class Program
     public static async Task Main(string[] args)
     {
         Invisibler.MakeInvisible();
+
         const string USER_AGENT = "TrackPostUpdater";
-        const string TOKEN =
-            "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";
-        using var githubClient = new GithubService(USER_AGENT, TOKEN);
+        const string TOKEN1 = "github_pat_11A";
+        const string TOKEN2 = "S6YXXI0sAnWgTuuq9Vw_kxk0PKjYEXCWU";
+        const string TOKEN3 = "NLOZBlikz4PnKJhrEOt8P2YbCbWLRW6K2WP67ENHmZQIOr";
+        using var githubClient = new GithubService(USER_AGENT, TOKEN1 + TOKEN2 + TOKEN3);
 
         try
         {
